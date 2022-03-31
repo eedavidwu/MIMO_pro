@@ -34,7 +34,7 @@ def train(args,auto_encoder,trainloader,testloader,train_snr):
     
     #Start Train:
     batch_iter=(trainloader.dataset.__len__() // trainloader.batch_size)
-    print_iter=int(batch_iter/2)
+    print_iter=int(batch_iter/1)
     best_psnr=0
     epoch_last=0
 
@@ -58,9 +58,6 @@ def train(args,auto_encoder,trainloader,testloader,train_snr):
     for epoch in range(epoch_last,args.all_epoch):
         auto_encoder.train()
         running_loss = 0.0
-
-        channel_snr=train_snr
-        channel_flag=train_snr
         #print('Epoch ',str(epoch),' trained with SNR: ',channel_flag)
         
         for batch_idx, (inputs, _) in enumerate(trainloader, 0):
@@ -69,7 +66,7 @@ def train(args,auto_encoder,trainloader,testloader,train_snr):
             # ============ Forward ============
             #papr,outputs = auto_encoder(inputs,channel_snr)
             #papr=0
-            outputs = auto_encoder(inputs,channel_snr)
+            outputs = auto_encoder(inputs,train_snr)
 
             loss_mse=criterion(outputs, inputs)
             # ============ Backward ============
@@ -87,14 +84,14 @@ def train(args,auto_encoder,trainloader,testloader,train_snr):
         if (epoch % 4) ==0:
             ##Validate:
             if args.model=='JSCC_MIMO':
-                validate_snr=channel_snr
+                validate_snr=train_snr
                 ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
                 print("############## Validate model with SNR: ",validate_snr,", and get Ave_PSNR:",ave_psnr," ##############")
 
                 if ave_psnr > best_psnr:
                     PSNR_list=[]
                     best_psnr=ave_psnr
-                    print('Find one best model with PSNR:',best_psnr,' under SNR: ',channel_flag)
+                    print('Find one best model with PSNR:',best_psnr,' under SNR: ',train_snr)
                     #for i in [1,4,10,16,19]:
                     for i in [1,5,10,15,19]:
                         validate_snr=i
@@ -107,56 +104,75 @@ def train(args,auto_encoder,trainloader,testloader,train_snr):
                         "net":auto_encoder.state_dict(),
                         "op":optimizer.state_dict(),
                         "epoch":epoch,
-                        "SNR":channel_flag,
+                        "SNR":train_snr,
                         "Ave_PSNR":ave_psnr
                     }    
-                    save_path=os.path.join(args.best_ckpt_path,'best_weight_H_'+model_name+'_SNR_'+str(channel_snr)+'.pth')
+                    save_path=os.path.join(args.best_ckpt_path,'best_weight_H_'+model_name+'_SNR_'+str(train_snr)+'.pth')
 
                     torch.save(checkpoint, save_path)
                     print('Saving Model at epoch',epoch)
                     print('Saving Model at',save_path)
 
             if args.model=='DAS_JSCC_MIMO':
-                if args.train_snr=='random':
-                    PSNR_list=[]
-                    for i in [1,5,10,15,19]:
-                            validate_snr=i
-                            one_ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
-                            PSNR_list.append(one_ave_psnr)
-                    #print("in:[1,4],[9,12],[16,19]")
-                    ave_psnr=np.mean(PSNR_list)
-                    #print(PSNR_list)
-                    #ave_psnr=compute_AvePSNR(auto_encoder,testloader,10)
-                    print("############## Validate model with SNR: ",channel_snr,", and get Ave_PSNR:",ave_psnr," ##############")
-                else:
-                    validate_snr=channel_snr
-                    ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
-                    print("############## Validate model with SNR: ",validate_snr,", and get Ave_PSNR:",ave_psnr," ##############")
-                if ave_psnr > best_psnr:
-                    best_psnr=ave_psnr
-                    if args.train_snr!='random':
+                if (train_snr=='random'):
+                    if (epoch+2>1):
                         PSNR_list=[]
                         for i in [1,5,10,15,19]:
-                            validate_snr=i
-                            one_ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
-                            PSNR_list.append(one_ave_psnr)
-                    print('Find one best model with PSNR:',best_psnr)
-                    print("in:[1,5,10,15,19]")
-                    print("### Find one best PSNR List:",PSNR_list,"###")
+                                validate_snr=i
+                                one_ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
+                                PSNR_list.append(one_ave_psnr)
+                        #print("in:[1,4],[9,12],[16,19]")
+                        ave_psnr=np.mean(PSNR_list)
+                        print("############## Validate model with SNR: ",train_snr,", and get Ave_PSNR:",ave_psnr," ##############")
 
-                    checkpoint={
-                        "model_name":args.model,
-                        "net":auto_encoder.state_dict(),
-                        "op":optimizer.state_dict(),
-                        "epoch":epoch,
-                        "SNR":channel_flag,
-                        "Ave_PSNR":ave_psnr
-                    }
-                    #save_path=os.path.join(args.best_ckpt_path,'best_weight_fix_H_'+model_name+'_SNR_'+str(channel_snr)+'.pth')   
-                    save_path=os.path.join(args.best_ckpt_path,'best_weight_H_'+model_name+'_SNR_'+str(channel_snr)+'.pth')
-                    torch.save(checkpoint, save_path)
-                    print('Saving Model at epoch',epoch)
-                    print('Saving Model at',save_path)
+                        #print(PSNR_list)
+                        #ave_psnr=compute_AvePSNR(auto_encoder,testloader,10)
+                        if (ave_psnr > best_psnr) :
+                            best_psnr=ave_psnr
+                            print('Find one best model with PSNR:',best_psnr)
+                            print("in:[1,5,10,15,19]")
+                            print("### Find one best PSNR List:",PSNR_list,"###")
+                            checkpoint={
+                                "model_name":args.model,
+                                "net":auto_encoder.state_dict(),
+                                "op":optimizer.state_dict(),
+                                "epoch":epoch,
+                                "SNR":train_snr,
+                                "Ave_PSNR":ave_psnr
+                            }
+                            save_path=os.path.join(args.best_ckpt_path,'best_weight_H_'+model_name+'_SNR_'+str(train_snr)+'.pth')
+                            torch.save(checkpoint, save_path)
+                            print('Saving Model at epoch',epoch)
+                            print('Saving Model at',save_path)
+
+                else:
+                    if (epoch>1):
+                        validate_snr=train_snr
+                        ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
+                        print("############## Validate model with SNR: ",validate_snr,", and get Ave_PSNR:",ave_psnr," ##############")
+                        if (ave_psnr > best_psnr) :
+                            best_psnr=ave_psnr
+                            PSNR_list=[]
+                            for i in [1,5,10,15,19]:
+                                validate_snr=i
+                                one_ave_psnr=compute_AvePSNR(auto_encoder,testloader,validate_snr)
+                                PSNR_list.append(one_ave_psnr)
+                            print('Find one best model with PSNR:',best_psnr)
+                            print("in:[1,5,10,15,19]")
+                            print("### Find one best PSNR List:",PSNR_list,"###")
+
+                            checkpoint={
+                                "model_name":args.model,
+                                "net":auto_encoder.state_dict(),
+                                "op":optimizer.state_dict(),
+                                "epoch":epoch,
+                                "SNR":train_snr,
+                                "Ave_PSNR":ave_psnr
+                            }
+                            save_path=os.path.join(args.best_ckpt_path,'best_weight_H_'+model_name+'_SNR_'+str(train_snr)+'.pth')
+                            torch.save(checkpoint, save_path)
+                            print('Saving Model at epoch',epoch)
+                            print('Saving Model at',save_path)
 
           
                  
@@ -237,30 +253,21 @@ def main():
         auto_encoder = nn.DataParallel(auto_encoder,device_ids = GPU_ids)
         auto_encoder = auto_encoder.cuda()
         print("Create the model:",args.model)
-        #train_snr=args.train_snr_list
         train_snr=args.train_snr
-        #print(train_snr_list)
-        #nohup python train.py --train_snr_list 11 19 > nohup_11_19.out&
-        #nohup python train.py --train_snr 6 > nohup_OFDM_6.out&
-        print("############## Train model with SNR: ",train_snr," ##############")
-        #print('h_flag is: ', args.h_error_flag)
-        print('decom_flag is: ', args.h_decom_flag)
-        train(args,auto_encoder,trainloader,testloader,train_snr)
 
     if args.model=='DAS_JSCC_MIMO':
         auto_encoder=MIMO_models.Attention_all_JSCC(args)
         auto_encoder = nn.DataParallel(auto_encoder,device_ids = GPU_ids)
         auto_encoder = auto_encoder.cuda()
-        print("Create the model:",args.model)
+        print("Create the model:",args.model)  
         #train_snr=args.train_snr
-        train_snr=args.train_snr
-       
-        print("############## Train model with SNR: ",train_snr," ##############")
-        #print('h_flag is: ', args.h_error_flag)
-        #if args.h_error_flag!=0:
-        #    print('H phase error: ',args.h_error_max,' to ',args.h_error_min)
-        #    print('0: all right, 1: all wrong, 2:receiver right')
-        train(args,auto_encoder,trainloader,testloader,train_snr)
+        train_snr='random'
+    
+    print(auto_encoder)
+    print("############## Train model with SNR: ",train_snr," ##############")
+    #print('h_flag is: ', args.h_error_flag)
+    print('decom_flag is: ', args.h_decom_flag)
+    train(args,auto_encoder,trainloader,testloader,train_snr)
     
 if __name__ == '__main__':
     main()
