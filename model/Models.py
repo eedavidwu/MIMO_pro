@@ -33,7 +33,7 @@ class AL_Module(nn.Module):
     def __init__(self,fc_in):
         super(AL_Module, self).__init__()
         self.Ave_Pooling = nn.AdaptiveAvgPool2d(1)
-        self.FC_1 = nn.Linear(fc_in+2,fc_in//16)
+        self.FC_1 = nn.Linear(fc_in+3,fc_in//16)
         self.FC_2 = nn.Linear(fc_in//16,fc_in)
 
     def forward(self, inputs,h):
@@ -317,6 +317,8 @@ class Attention_all_JSCC(nn.Module):
         self.num_re=2
         self.estimation_error=args.h_error_flag
         self.decompose_flag=args.h_decom_flag
+        self.SNR_max=args.input_snr_max
+        self.SNR_min=args.input_snr_min
     
     def power_normalize(self,feature):        
         sig_pwr=torch.square(torch.abs(feature))
@@ -341,11 +343,11 @@ class Attention_all_JSCC(nn.Module):
         x_head_ave=torch.zeros_like(x).cuda()
 
         for transmit_times in range (5):
-            if input_snr=='random_in_list':
+            if input_snr=='random':
                 snr_attention=np.random.rand(batch_size,)*(self.SNR_max-self.SNR_min)+self.SNR_min
             else:
                 snr_attention=np.full(batch_size,input_snr)
-            channel_snr_attention=torch.from_numpy(snr_attention).float().cuda()
+            channel_snr_attention=torch.from_numpy(snr_attention).float().cuda().view(batch_size,-1)
 
             #prepare H at each time for the attention and channel:
             h_stddev=torch.full((batch_size,N_r,N_s),1/np.sqrt(2)).float()
@@ -359,10 +361,10 @@ class Attention_all_JSCC(nn.Module):
                 U, S, Vh = torch.linalg.svd(H, full_matrices=True)
                 S_diag=torch.diag_embed(torch.complex(S,torch.zeros_like(S)))
                 #if perfect:
-                Vh_est=Vh
+                #Vh_est=Vh
                 S_est=S
-                U_est=U
-                S_diag_est=S_diag
+                #U_est=U
+                #S_diag_est=S_diag
                 #if estimate wrong:
                 if (self.estimation_error)!=0:
                     phase_error=np.random.rand(batch_size,N_r,N_s)*(self.h_phase_error_max-self.h_phase_error_min)+self.h_phase_error_min
@@ -371,12 +373,17 @@ class Attention_all_JSCC(nn.Module):
                     U_est, S_est, Vh_est = torch.linalg.svd(H_est, full_matrices=True)
                     S_diag_est=torch.diag_embed(torch.complex(S_est,torch.zeros_like(S)))
                 h_est_attention=S_est
-                h_real_attention=S
+                #h_real_attention=S
             #real Channel Use H
             #attention use H_est
+            if input_snr=='random':
+                attention_vector=torch.cat((h_est_attention,channel_snr_attention),dim=1)
+            else:
+                #attention_vector=h_est_attention
+                attention_vector=torch.cat((h_est_attention,channel_snr_attention),dim=1)
 
             #encode
-            encoded_out = self.attention_encoder(x,h_est_attention)
+            encoded_out = self.attention_encoder(x,attention_vector)
             encoded_shape=encoded_out.shape
             batch_size=encoded_shape[0]
             z=encoded_out.view(batch_size,-1)
@@ -388,10 +395,9 @@ class Attention_all_JSCC(nn.Module):
             ####Power constraint for each sending:
             normalized_X=self.power_normalize(Y)
             ##constrcut AWGN:
-            snr=input_snr
-            noise_stddev=(np.sqrt(10**(-snr/10))/np.sqrt(2)).reshape(1,1,1)
+            noise_stddev=(np.sqrt(10**(-snr_attention/10))/np.sqrt(2)).reshape(-1,1,1)
             #noise_stddev=np.zeros((1,1,1))
-            noise_stddev_board=torch.from_numpy(noise_stddev).repeat(batch_size,N_r,shape_each_antena).float().cuda()
+            noise_stddev_board=torch.from_numpy(noise_stddev).repeat(1,N_r,shape_each_antena).float().cuda()
             mean=torch.zeros_like(noise_stddev_board).float().cuda()
             w_real=Variable(torch.normal(mean=mean,std=noise_stddev_board)).float()
             w_img=Variable(torch.normal(mean=mean,std=noise_stddev_board)).float()
@@ -413,10 +419,10 @@ class Attention_all_JSCC(nn.Module):
             decoder_input=Y_head_de.view(batch_size,-1,encoded_shape[2],encoded_shape[3]).float()
             if (self.estimation_error)==1:
                 ##1 all wrong esti
-                x_head= self.attention_decoder(decoder_input,h_est_attention)
+                x_head= self.attention_decoder(decoder_input,attention_vector)
             else:
                 ##1 receiver right
-                x_head= self.attention_decoder(decoder_input,h_real_attention)
+                x_head= self.attention_decoder(decoder_input,attention_vector)
             #Transmit 5 times:    
             x_head_ave=x_head+x_head_ave
         x_head_ave=x_head_ave/5
